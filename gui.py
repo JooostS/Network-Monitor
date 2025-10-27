@@ -57,9 +57,9 @@ class NetworkMonitorGUI(ctk.CTk):
         # --- SAFETY GUARD: if something shadowed the Tk mainloop method with a dict, remove it
         if "mainloop" in self.__dict__ and not callable(self.__dict__["mainloop"]):
             del self.__dict__["mainloop"]
-        self.title("Network Monitor")
-        self.geometry("1100x760")
-
+        self.title("Network Monitor Tool")
+        self.geometry("1200x900")
+        self.iconbitmap( "./Network-Monitor/network-monitor-tool.ico")
         # --- State ---
         self.refresh_interval = refresh_interval
         self.devices = {}
@@ -149,22 +149,7 @@ class NetworkMonitorGUI(ctk.CTk):
         self.bind_all("<Escape>", lambda e: self.clear_filter())
         self.bind_all("<Control-f>", lambda e: (self.filter_entry.focus_set(), "break"))
         self.bind_all("<Control-a>", self._select_all_visible)
-
-        # ========= Watchlist (Pinned) =========
-        watch_wrap = ctk.CTkFrame(self, corner_radius=12)
-        watch_wrap.pack(fill="both", padx=10, pady=(0, 6))
-        ctk.CTkLabel(watch_wrap, text="Watchlist (pinned)", font=MONO_BOLD).pack(anchor="w", padx=8, pady=(6, 0))
-
-        self.watch_columns = ("IP", "MAC", "Status", "Protocol", "Ping (ms)")
-        self.watch_tree = ttk.Treeview(watch_wrap, columns=self.watch_columns, show="headings", selectmode="extended")
-        for col in self.watch_columns:
-            self.watch_tree.heading(col, text=col, command=lambda c=col: self._sort_tree(self.watch_tree, c))
-            anchor = "w" if col in ("IP", "MAC") else "center"
-            width  = 180 if col == "IP" else 250 if col == "MAC" else 110
-            self.watch_tree.column(col, anchor=anchor, width=width, stretch=True)
-        self.watch_tree.pack(fill="x", padx=8, pady=(4, 8))
-        self.watch_tree.bind("<Button-3>", self._open_context_menu_watch)
-
+        
         # ========= Main Area (All devices) =========
         main_wrap = ctk.CTkFrame(self, corner_radius=12)
         main_wrap.pack(expand=True, fill="both", padx=10, pady=(0, 8))
@@ -195,6 +180,23 @@ class NetworkMonitorGUI(ctk.CTk):
 
         # Context menus
         self.tree.bind("<Button-3>", self._open_context_menu_main)
+
+        # ========= Watchlist (Pinned) =========
+        watch_wrap = ctk.CTkFrame(self, corner_radius=12)
+        watch_wrap.pack(fill="both", padx=10, pady=(0, 6))
+        ctk.CTkLabel(watch_wrap, text="Watchlist (pinned)", font=MONO_BOLD).pack(anchor="w", padx=8, pady=(6, 0))
+
+        self.watch_columns = ("IP", "MAC", "Status", "Protocol", "Ping (ms)")
+        self.watch_tree = ttk.Treeview(watch_wrap, columns=self.watch_columns, show="headings", selectmode="extended")
+        for col in self.watch_columns:
+            self.watch_tree.heading(col, text=col, command=lambda c=col: self._sort_tree(self.watch_tree, c))
+            anchor = "w" if col in ("IP", "MAC") else "center"
+            width  = 180 if col == "IP" else 250 if col == "MAC" else 110
+            self.watch_tree.column(col, anchor=anchor, width=width, stretch=True)
+        self.watch_tree.pack(fill="x", padx=8, pady=(4, 8))
+        self.watch_tree.bind("<Button-3>", self._open_context_menu_watch)
+
+        
 
         # ========= Chart (smooth updates) =========
         self.figure = Figure(figsize=(8.5, 2.3), dpi=100)
@@ -567,7 +569,7 @@ class NetworkMonitorGUI(ctk.CTk):
         except Exception:
             pass
 
-    # ===================== Details & KPIs =====================
+    # ---------------- Details & KPIs --------------
     def show_details(self, event):
         selected = self.tree.selection()
         if not selected:
