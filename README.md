@@ -26,13 +26,13 @@ A Python-based network monitoring dashboard for IT professionals and developers.
 - Python >= 3.8
 - `CustomTkinter`
 - `Matplotlib`
-- `Pillow`
+
 
 ### Installation
 ```bash
 git clone https://github.com/JooostS/Network-Monitor.git
 cd Network-Monitor
-pip install -r requirements.txt
+pip install -m CustomTkinter Matplotlib 
 python main.py
 ```
 
@@ -58,7 +58,6 @@ Esc: Clear filter
 
 # 🖱️ Context Menu
 
-
 Copy cell
 
 Copy row(s)
@@ -71,7 +70,7 @@ Add/remove from watchlist
 
 Format: JSON (visible rows or all rows)
 
-Future: CSV export, combined watchlist + main export
+- Future: CSV export, combined watchlist + main export
 
 # ⚙️ Settings
 
