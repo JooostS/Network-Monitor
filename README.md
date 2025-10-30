@@ -31,8 +31,14 @@ A Python-based network monitoring dashboard for IT professionals and developers.
 ### Installation
 ```bash
 git clone https://github.com/JooostS/Network-Monitor.git
+```
+```bash
 cd Network-Monitor
+```
+```bash
 pip install -m CustomTkinter Matplotlib 
+```
+```bash
 python main.py
 ```
 
