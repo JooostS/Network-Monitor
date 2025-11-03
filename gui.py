@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 import customtkinter as ctk
-from tkinter import ttk, filedialog, Menu
+from tkinter import ttk, filedialog, Menu, simpledialog
 from datetime import datetime
 from scanner import scan_network, threaded_ping
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -59,7 +59,11 @@ class NetworkMonitorGUI(ctk.CTk):
             del self.__dict__["mainloop"]
         self.title("Network Monitor Tool")
         self.geometry("1200x900")
-        self.iconbitmap( "./Network-Monitor/network-monitor-tool.ico")
+        try:
+            self.iconbitmap("./Network-Monitor/network-monitor-tool.ico")
+        except:
+            pass
+        
         # --- State ---
         self.refresh_interval = refresh_interval
         self.devices = {}
@@ -76,7 +80,8 @@ class NetworkMonitorGUI(ctk.CTk):
             "last_filter": "",
             "watchlist": [],           # list of IP strings
             "sort_col": "IP",
-            "sort_desc": False
+            "sort_desc": False,
+            "nicknames": {}            # NEW: {ip: nickname}
         }
         self._load_settings()
 
@@ -100,8 +105,8 @@ class NetworkMonitorGUI(ctk.CTk):
                                        command=self.toggle_mode, font=MONO_SMALL)
         self.theme_btn.pack(side="left", padx=6, pady=8)
 
-        # Export button with JSON options
-        self.export_btn = ctk.CTkButton(self.topbar, text="export (JSON)", width=130,
+        # Export button with JSON/PDF options
+        self.export_btn = ctk.CTkButton(self.topbar, text="export", width=90,
                                         command=self._open_export_menu, font=MONO_SMALL)
         self.export_btn.pack(side="left", padx=6, pady=8)
 
@@ -132,7 +137,7 @@ class NetworkMonitorGUI(ctk.CTk):
         self.filter_var = ctk.StringVar(value=self.settings.get("last_filter", ""))
         self.filter_entry = ctk.CTkEntry(
             left,
-            placeholder_text="filter ip / mac / status / protocol / ping (Esc clears)",
+            placeholder_text="filter ip / mac / nickname / status / protocol / ping (Esc clears)",
             textvariable=self.filter_var,
             font=MONO_SMALL
         )
@@ -155,14 +160,21 @@ class NetworkMonitorGUI(ctk.CTk):
         main_wrap.pack(expand=True, fill="both", padx=10, pady=(0, 8))
         ctk.CTkLabel(main_wrap, text="All devices", font=MONO_BOLD).pack(anchor="w", padx=8, pady=(6, 0))
 
-        self.columns = ("IP", "MAC", "Status", "Protocol", "Ping (ms)")
+        self.columns = ("Nickname", "IP", "MAC", "Status", "Protocol", "Ping (ms)")
         self.tree = ttk.Treeview(main_wrap, columns=self.columns, show="headings", selectmode="extended")
         self._style_tree()  # apply theme-aware ttk styles
 
         for col in self.columns:
             self.tree.heading(col, text=col, command=lambda c=col: self._sort_main_by(c))
-            anchor = "w" if col in ("IP", "MAC") else "center"
-            width  = 180 if col == "IP" else 250 if col == "MAC" else 110
+            if col == "Nickname":
+                anchor = "w"
+                width = 150
+            elif col in ("IP", "MAC"):
+                anchor = "w"
+                width = 180 if col == "IP" else 250
+            else:
+                anchor = "center"
+                width = 110
             self.tree.column(col, anchor=anchor, width=width, stretch=True)
         self.tree.pack(side="left", expand=True, fill="both", padx=8, pady=(4, 8))
 
@@ -186,17 +198,22 @@ class NetworkMonitorGUI(ctk.CTk):
         watch_wrap.pack(fill="both", padx=10, pady=(0, 6))
         ctk.CTkLabel(watch_wrap, text="Watchlist (pinned)", font=MONO_BOLD).pack(anchor="w", padx=8, pady=(6, 0))
 
-        self.watch_columns = ("IP", "MAC", "Status", "Protocol", "Ping (ms)")
+        self.watch_columns = ("Nickname", "IP", "MAC", "Status", "Protocol", "Ping (ms)")
         self.watch_tree = ttk.Treeview(watch_wrap, columns=self.watch_columns, show="headings", selectmode="extended")
         for col in self.watch_columns:
             self.watch_tree.heading(col, text=col, command=lambda c=col: self._sort_tree(self.watch_tree, c))
-            anchor = "w" if col in ("IP", "MAC") else "center"
-            width  = 180 if col == "IP" else 250 if col == "MAC" else 110
+            if col == "Nickname":
+                anchor = "w"
+                width = 150
+            elif col in ("IP", "MAC"):
+                anchor = "w"
+                width = 180 if col == "IP" else 250
+            else:
+                anchor = "center"
+                width = 110
             self.watch_tree.column(col, anchor=anchor, width=width, stretch=True)
         self.watch_tree.pack(fill="x", padx=8, pady=(4, 8))
         self.watch_tree.bind("<Button-3>", self._open_context_menu_watch)
-
-        
 
         # ========= Chart (smooth updates) =========
         self.figure = Figure(figsize=(8.5, 2.3), dpi=100)
@@ -443,10 +460,13 @@ class NetworkMonitorGUI(ctk.CTk):
         threaded_ping(self.devices, callback=self._on_ping_result)
 
     def _insert_row(self, tree, row_set, ip, info, idx=None):
+        # Get nickname
+        nickname = self.settings.get("nicknames", {}).get(ip, "")
+        
         # Build status badge with icon (if available)
         status_text = info.get("status", "Scanning…")
         icon = self.icon_online if status_text == "Online" else self.icon_offline if status_text == "Offline" else None
-        values = (ip, info.get("mac", ""), status_text, info.get("protocol", ""), self._ping_text(info.get("ping")))
+        values = (nickname, ip, info.get("mac", ""), status_text, info.get("protocol", ""), self._ping_text(info.get("ping")))
         try:
             tree.insert("", "end", iid=str(ip), values=values)
             row_set.add(str(ip))
@@ -459,8 +479,6 @@ class NetworkMonitorGUI(ctk.CTk):
             else:
                 if status_text in ("Online", "Offline"):
                     tree.item(str(ip), tags=(status_text,))
-            # If using images in a separate narrow “State” column, we would configure here.
-            # Since Treeview per-cell images are limited, we keep text + colored tag; icon kept for future extension.
         except Exception:
             pass
 
@@ -477,7 +495,8 @@ class NetworkMonitorGUI(ctk.CTk):
 
     def _update_row(self, ip, info):
         ip = str(ip)
-        values = (ip, info.get("mac", ""), info.get("status", "?"),
+        nickname = self.settings.get("nicknames", {}).get(ip, "")
+        values = (nickname, ip, info.get("mac", ""), info.get("status", "?"),
                   info.get("protocol",""), self._ping_text(info.get("ping")))
 
         # Update MAIN
@@ -548,7 +567,9 @@ class NetworkMonitorGUI(ctk.CTk):
 
     def _matches_filter(self, iid, txt_lower):
         info = self.devices.get(iid, {})
+        nickname = self.settings.get("nicknames", {}).get(iid, "")
         values = (
+            nickname,
             iid,
             info.get("mac", ""),
             info.get("status", ""),
@@ -576,6 +597,7 @@ class NetworkMonitorGUI(ctk.CTk):
             return
         ip = selected[0]
         info = self.devices.get(ip, {})
+        nickname = self.settings.get("nicknames", {}).get(ip, "N/A")
         ping_val = info.get("ping")
         if ping_val is None:
             ping_text = "-"
@@ -587,6 +609,7 @@ class NetworkMonitorGUI(ctk.CTk):
         history_list = info.get("history", [])
         history_text = ", ".join(history_list[-10:]) if history_list else ""
         text = (
+            "nickname: {nick}\n"
             "ip: {ip}\n"
             "mac: {mac}\n"
             "status: {status}\n"
@@ -594,6 +617,7 @@ class NetworkMonitorGUI(ctk.CTk):
             "ping: {ping}\n"
             "history (last 10): {hist}"
         ).format(
+            nick=nickname,
             ip=ip,
             mac=info.get("mac", "N/A"),
             status=info.get("status", "N/A"),
@@ -602,253 +626,3 @@ class NetworkMonitorGUI(ctk.CTk):
             hist=history_text,
         )
         self.detail_label.configure(text=text)
-
-    def _update_kpis_live(self):
-        total = len(self.devices)
-        online_count = sum(1 for d in self.devices.values() if d.get("status") == "Online")
-        pings = [d["ping"] for d in self.devices.values() if d.get("ping") is not None]
-        avg_ping = sum(pings) / len(pings) if pings else 0.0
-        self.kpi_total.configure(text=f"devices: {total}")
-        self.kpi_online.configure(text=f"online: {online_count}", text_color=self.green)
-        self.kpi_avg.configure(text=(f"avg ping: {avg_ping:.1f} ms" if pings else "avg ping: -"), text_color=self.yellow)
-        self.kpi_time.configure(text=f"last: {datetime.now().strftime('%H:%M:%S')}", text_color=self.grey)
-
-    # ===================== Chart =====================
-    def _commit_chart_point(self):
-        online_count = sum(1 for d in self.devices.values() if d.get("status") == "Online")
-        pings = [d["ping"] for d in self.devices.values() if d.get("ping") is not None]
-        avg_ping = (sum(pings) / len(pings)) if pings else 0.0
-
-        self.scan_count += 1
-        self.online_history.append(online_count)
-        self.latency_history.append(avg_ping)
-
-        self._update_chart_curves()
-        self._chart_needs_draw = True
-
-    def _update_chart_curves(self, live=None):
-        x     = list(range(1, self.scan_count + 1))
-        y_on  = list(self.online_history)
-        y_lat = list(self.latency_history)
-
-        if live is not None:
-            live_on, live_lat = live
-            x     = x + [self.scan_count + 1]
-            y_on  = y_on + [live_on]
-            y_lat = y_lat + [live_lat]
-
-        self.line_online.set_data(x, y_on)
-        self.line_latency.set_data(x, y_lat)
-
-        window = self._chart_window
-        xmax = max(window, (x[-1] if x else window))
-        xmin = max(1, xmax - window + 1)
-        self.ax.set_xlim(xmin, xmax)
-
-        on_vals  = y_on[-window:]  if y_on  else []
-        lat_vals = y_lat[-window:] if y_lat else []
-        on_max   = max(on_vals)  if on_vals  else 0
-        lat_max  = max(lat_vals) if lat_vals else 0.0
-
-        self.ax.set_ylim (0, max(5,  int(on_max  * 1.2) if on_max  else 5))
-        self.ax2.set_ylim(0, max(10, float(lat_max * 1.2) if lat_max else 10))
-
-    def _chart_redraw_tick(self):
-        if self._chart_needs_draw:
-            self.canvas.draw_idle()
-            self._chart_needs_draw = False
-        self.after(self._chart_interval_ms, self._chart_redraw_tick)
-
-    # ===================== Sorting =====================
-    def _sort_key(self, col, value):
-        if col == "IP":
-            try:
-                return [int(p) for p in str(value).split(".")]
-            except Exception:
-                return [999, 999, 999, 999]
-        if col == "Ping (ms)":
-            try:
-                return float(value)
-            except Exception:
-                return float("inf")
-        return str(value).lower()
-
-    def _sort_tree(self, tree, col, desc=None):
-        # Generic sort for a given tree
-        items = [(tree.set(k, col), k) for k in tree.get_children("")]
-        # Determine direction
-        if desc is None:
-            desc = False
-        items.sort(key=lambda t: self._sort_key(col, t[0]), reverse=desc)
-        for idx, (_, k) in enumerate(items):
-            tree.move(k, "", idx)
-
-    def _sort_main_by(self, col):
-        # Toggle or set according to saved state
-        last_col = self.settings.get("sort_col", "IP")
-        last_desc = self.settings.get("sort_desc", False)
-        if col == last_col:
-            desc = not last_desc
-        else:
-            desc = False
-        self._sort_tree(self.tree, col, desc)
-        self.settings["sort_col"] = col
-        self.settings["sort_desc"] = desc
-        self._save_settings()
-
-    # ===================== Context Menus & Clipboard =====================
-    def _open_context_menu_main(self, event):
-        self._open_context_menu(event, self.tree, is_watch=False)
-
-    def _open_context_menu_watch(self, event):
-        self._open_context_menu(event, self.watch_tree, is_watch=True)
-
-    def _open_context_menu(self, event, tree, is_watch=False):
-        rowid = tree.identify_row(event.y)
-        colid = tree.identify_column(event.x)  # e.g. '#1'
-        col_index = int(colid.replace('#','')) - 1 if colid and colid != "#0" else 0
-
-        menu = Menu(self, tearoff=0)
-        menu.add_command(label="Copy cell", command=lambda: self._copy_cell(tree, rowid, col_index))
-        menu.add_command(label="Copy row(s)", command=lambda: self._copy_rows(tree))
-        menu.add_command(label="Copy column", command=lambda: self._copy_column(tree, col_index))
-        menu.add_separator()
-        if is_watch:
-            menu.add_command(label="Remove from watchlist", command=lambda: self._toggle_watchlist(rowid, add=False))
-        else:
-            menu.add_command(label="Add to watchlist", command=lambda: self._toggle_watchlist(rowid, add=True))
-        try:
-            menu.tk_popup(event.x_root, event.y_root, 0)
-        finally:
-            menu.grab_release()
-
-    def _copy_cell(self, tree, iid, col_index):
-        if not iid:
-            return
-        vals = tree.item(iid).get("values", [])
-        if col_index < 0 or col_index >= len(vals):
-            return
-        self._to_clipboard(str(vals[col_index]))
-
-    def _copy_rows(self, tree):
-        iids = tree.selection() or tree.get_children()
-        lines = []
-        for iid in iids:
-            vals = tree.item(iid).get("values", [])
-            lines.append("\t".join(str(v) for v in vals))
-        self._to_clipboard("\n".join(lines))
-
-    def _copy_column(self, tree, col_index):
-        values = []
-        for iid in tree.get_children():
-            row = tree.item(iid).get("values", [])
-            if 0 <= col_index < len(row):
-                values.append(str(row[col_index]))
-        self._to_clipboard("\n".join(values))
-
-    def _to_clipboard(self, text):
-        try:
-            self.clipboard_clear()
-            self.clipboard_append(text)
-            self.status_line.configure(text="copied to clipboard")
-        except Exception:
-            pass
-
-    # Select all visible rows in focused tree (Ctrl+A)
-    def _select_all_visible(self, event=None):
-        focus_widget = self.focus_get()
-        tree = None
-        if focus_widget in (self.tree, self.watch_tree) or \
-           isinstance(focus_widget, ttk.Treeview):
-            tree = focus_widget
-        else:
-            # default to main tree
-            tree = self.tree
-        tree.selection_set(tree.get_children())
-        return "break"
-
-    # ===================== Watchlist =====================
-    def _toggle_watchlist(self, iid, add=True):
-        if not iid:
-            return
-        wl = set(self.settings.get("watchlist", []))
-        if add:
-            wl.add(iid)
-        else:
-            wl.discard(iid)
-        self.settings["watchlist"] = sorted(wl)
-        self._save_settings()
-        # Rebuild watchlist table quickly (keep main intact)
-        for wid in list(self.watch_row_ids):
-            try: self.watch_tree.delete(wid)
-            except Exception: pass
-        self.watch_row_ids.clear()
-        for ip in self.settings["watchlist"]:
-            info = self.devices.get(ip, {"mac":"", "status":"Scanning…", "ping":"", "protocol":""})
-            self._insert_row(self.watch_tree, self.watch_row_ids, ip, info)
-        # Ensure the IP is part of devices for scanning next time
-        if add and iid not in self.devices:
-            self.devices[iid] = {"mac": "", "status": "Offline", "ping": None, "history": [], "protocol": ""}
-
-    # ===================== Export (JSON) =====================
-    def _open_export_menu(self):
-        menu = Menu(self, tearoff=0)
-        menu.add_command(label="Export visible (JSON)", command=lambda: self._export_json(visible_only=True))
-        menu.add_command(label="Export all (JSON)",     command=lambda: self._export_json(visible_only=False))
-        # You can add CSV variants later if needed
-        try:
-            x = self.export_btn.winfo_rootx()
-            y = self.export_btn.winfo_rooty() + self.export_btn.winfo_height()
-            menu.tk_popup(x, y, 0)
-        finally:
-            menu.grab_release()
-
-    def _export_json(self, visible_only=True):
-        default_name = "devices_visible.json" if visible_only else "devices_all.json"
-        path = filedialog.asksaveasfilename(
-            title="Export JSON",
-            defaultextension=".json",
-            initialfile=default_name,
-            filetypes=[("JSON files","*.json"),("All files","*.*")]
-        )
-        if not path:
-            return
-        try:
-            payload = []
-            if visible_only:
-                # only attached (visible) rows in MAIN
-                for iid in self.tree.get_children():
-                    vals = self.tree.item(iid)["values"]
-                    payload.append(self._row_to_dict(vals))
-            else:
-                # all rows we know (MAIN row_ids)
-                for iid in sorted(self.main_row_ids):
-                    info = self.devices.get(iid, {})
-                    payload.append({
-                        "IP": iid,
-                        "MAC": info.get("mac",""),
-                        "Status": info.get("status",""),
-                        "Protocol": info.get("protocol",""),
-                        "Ping (ms)": self._ping_text(info.get("ping"))
-                    })
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
-            self.status_line.configure(text=f"exported: {os.path.basename(path)}")
-        except Exception as e:
-            self.status_line.configure(text=f"export error: {e}")
-
-    def _row_to_dict(self, values):
-        cols = ["IP","MAC","Status","Protocol","Ping (ms)"]
-        return {c: (values[i] if i < len(values) else "") for i, c in enumerate(cols)}
-
-    # ===================== Utility: tiny circle icon =====================
-    def _make_circle_icon(self, rgb, size=10):
-        # Try Pillow; otherwise return None and fall back to textual badge
-        try:
-            from PIL import Image, ImageDraw, ImageTk
-            img = Image.new("RGBA", (size, size), (0,0,0,0))
-            draw = ImageDraw.Draw(img)
-            draw.ellipse((0,0,size-1,size-1), fill=rgb + (255,), outline=None)
-            return ImageTk.PhotoImage(img)
-        except Exception:
-            return None
